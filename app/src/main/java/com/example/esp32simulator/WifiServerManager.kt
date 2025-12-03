@@ -18,7 +18,9 @@ class WifiServerManager(
     private var serverSocket: ServerSocket? = null
     private var serverJob: Job? = null
 
-    // Порт, на якому ми слухаємо підключення (стандартний для простих тестів)
+    // Змінна для відправки даних клієнту
+    private var clientWriter: PrintWriter? = null
+
     private val PORT = 8080
 
     fun startServer() {
@@ -28,7 +30,6 @@ class WifiServerManager(
             return
         }
 
-        // Запускаємо сервер в окремому потоці (IO context), щоб не блокувати UI
         serverJob = CoroutineScope(Dispatchers.IO).launch {
             try {
                 serverSocket = ServerSocket(PORT)
@@ -37,7 +38,6 @@ class WifiServerManager(
                 }
 
                 while (isActive) {
-                    // Чекаємо на підключення клієнта (це блокуюча операція)
                     val socket = serverSocket?.accept()
                     socket?.let { handleClient(it) }
                 }
@@ -58,30 +58,36 @@ class WifiServerManager(
 
         try {
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
-            val writer = PrintWriter(socket.getOutputStream(), true)
+            // Ініціалізуємо writer і зберігаємо його в змінну класу
+            clientWriter = PrintWriter(socket.getOutputStream(), true)
 
             var line: String?
-            // Читаємо рядки, поки з'єднання активне
             while (reader.readLine().also { line = it } != null) {
                 line?.let { msg ->
                     withContext(Dispatchers.Main) {
                         onLog("Wi-Fi RX <-- $msg", LogType.RX)
-
-                        // Відправляємо емульовану відповідь (Echo)
-                        // Тут можна додати логіку: if (msg == "STATUS") writer.println("OK")
-                        CoroutineScope(Dispatchers.IO).launch {
-                            writer.println("ESP32-Sim Received: $msg")
-                        }
                     }
                 }
             }
         } catch (e: Exception) {
-            // Клієнт розірвав з'єднання або помилка мережі
+            // Клієнт відпав
         } finally {
             withContext(Dispatchers.Main) {
                 onLog("Wi-Fi: Клієнт відключився", LogType.ERROR)
             }
+            clientWriter = null
             try { socket.close() } catch (e: Exception) {}
+        }
+    }
+
+    // Метод для відправки відповіді (викликається з ViewModel)
+    fun sendResponse(message: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                clientWriter?.println(message)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -95,14 +101,11 @@ class WifiServerManager(
         onLog("Wi-Fi: Сервер зупинено", LogType.INFO)
     }
 
-    // Допоміжна функція для отримання локальної IP-адреси телефону
     fun getIpAddress(): String? {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val linkProperties: LinkProperties = connectivityManager.getLinkProperties(connectivityManager.activeNetwork) ?: return null
-
         for (linkAddress in linkProperties.linkAddresses) {
             val address = linkAddress.address
-            // Шукаємо IPv4 адресу, яка не є локальною (127.0.0.1)
             if (address is Inet4Address && !address.isLoopbackAddress && address.hostAddress != "127.0.0.1") {
                 return address.hostAddress
             }

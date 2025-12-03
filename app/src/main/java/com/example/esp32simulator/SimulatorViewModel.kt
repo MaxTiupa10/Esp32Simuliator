@@ -1,6 +1,8 @@
 package com.example.esp32simulator
 
 import android.app.Application
+import android.hardware.Sensor
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,8 +14,7 @@ import java.util.Locale
 
 class SimulatorViewModel(application: Application) : AndroidViewModel(application) {
 
-    // --- Стан даних (StateFlow) для UI ---
-
+    // --- Стан даних ---
     private val _logs = MutableStateFlow<List<LogMessage>>(emptyList())
     val logs = _logs.asStateFlow()
 
@@ -32,55 +33,130 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
     private val _isLedOn = MutableStateFlow(false)
     val isLedOn = _isLedOn.asStateFlow()
 
-    // --- Менеджери ---
+    private val _rgbColor = MutableStateFlow(Color.Black)
+    val rgbColor = _rgbColor.asStateFlow()
 
+    private val _accelData = MutableStateFlow(Sensor3DData(0f, 0f, 0f))
+    val accelData = _accelData.asStateFlow()
+
+    private val _gyroData = MutableStateFlow(Sensor3DData(0f, 0f, 0f))
+    val gyroData = _gyroData.asStateFlow()
+
+    private val _temperature = MutableStateFlow(24.0f)
+    val temperature = _temperature.asStateFlow()
+
+    // --- GPS Дані (Свої та Клієнта) ---
+    private val _gpsData = MutableStateFlow(GpsData())
+    val gpsData = _gpsData.asStateFlow()
+
+    private val _clientGpsData = MutableStateFlow<GpsData?>(null)
+    val clientGpsData = _clientGpsData.asStateFlow()
+
+
+    // --- Менеджери ---
     private val flashlightManager = FlashlightManager(application.applicationContext)
     private val sensorManager = HardwareSensorManager(application.applicationContext)
+    private val gpsManager = GpsManager(application.applicationContext) // <-- Додано GPS Manager
 
-    private val bleManager = BleServerManager(application.applicationContext) { msg, type ->
-        addLog("[BLE] $msg", type)
-        processCommand(msg)
-    }
+    // BLE Manager
+    private val bleManager = BleServerManager(
+        context = application.applicationContext,
+        onLog = { msg, type -> addLog("[BLE] $msg", type) },
+        onCommandReceived = { cmd -> processCommand(cmd) }
+    )
 
+    // Wi-Fi Manager
     private val wifiManager = WifiServerManager(application.applicationContext) { msg, type ->
-        addLog("[Wi-Fi] $msg", type)
-        processCommand(msg)
+        addLog(msg, type)
+        // Фільтруємо логи, передаємо тільки RX
+        if (type == LogType.RX) {
+            val cleanMsg = msg.replace("Wi-Fi RX <--", "").trim()
+            processCommand(cleanMsg)
+        }
     }
 
     init {
+        // Збір даних з усіх датчиків
         viewModelScope.launch {
-            sensorManager.getLightSensorData().collect { lux ->
-                _lightLevel.value = lux
-            }
+            launch { sensorManager.getLightSensorData().collect { _lightLevel.value = it } }
+            launch { sensorManager.get3DSensorData(Sensor.TYPE_ACCELEROMETER).collect { _accelData.value = it } }
+            launch { sensorManager.get3DSensorData(Sensor.TYPE_GYROSCOPE).collect { _gyroData.value = it } }
+            // Запуск збору GPS
+            launch { gpsManager.getGpsData().collect { _gpsData.value = it } }
         }
     }
 
-    // --- ГОЛОВНЕ ВИПРАВЛЕННЯ ТУТ ---
+    // --- ОБРОБКА КОМАНД ---
     private fun processCommand(command: String) {
-        // Переводимо в верхній регістр, щоб не залежати від led_on чи LED_ON
-        val rawCommand = command.uppercase()
+        val cleanCmd = command.trim().uppercase()
 
-        // Використовуємо contains(), щоб ігнорувати пробіли та Enter (\n)
-        if (rawCommand.contains("LED_ON")) {
-            _isLedOn.value = true
-            addLog("✅ ACTION: Flashlight ON", LogType.SUCCESS)
-            try {
-                flashlightManager.setFlash(true)
-            } catch (e: Exception) {
-                addLog("Error: Camera permission?", LogType.ERROR)
+        if (cleanCmd.isEmpty()) return
+
+        when {
+            // ЛІХТАРИК
+            cleanCmd.contains("LED_ON") -> {
+                _isLedOn.value = true
+                addLog("✅ Flashlight ON", LogType.SUCCESS)
+                try { flashlightManager.setFlash(true) } catch (e: Exception) {}
             }
-        }
-        else if (rawCommand.contains("LED_OFF")) {
-            _isLedOn.value = false
-            addLog("✅ ACTION: Flashlight OFF", LogType.SUCCESS)
-            try {
-                flashlightManager.setFlash(false)
-            } catch (e: Exception) {
-                addLog("Error: Camera busy", LogType.ERROR)
+            cleanCmd.contains("LED_OFF") -> {
+                _isLedOn.value = false
+                addLog("✅ Flashlight OFF", LogType.SUCCESS)
+                try { flashlightManager.setFlash(false) } catch (e: Exception) {}
+            }
+
+            // RGB (Універсальний парсер)
+            // Реагує на "RGB" або наявність двокрапки, якщо це не GPS координати
+            (cleanCmd.contains("RGB") || cleanCmd.contains(":")) && !cleanCmd.contains("GPS") -> {
+                try {
+                    val numbersOnly = cleanCmd
+                        .replace(Regex("[^0-9 ]"), " ") // Залишаємо тільки цифри
+                        .trim()
+
+                    val parts = numbersOnly.split(Regex("\\s+"))
+                        .mapNotNull { it.toIntOrNull() }
+
+                    if (parts.size >= 3) {
+                        val r = parts[0].coerceIn(0, 255)
+                        val g = parts[1].coerceIn(0, 255)
+                        val b = parts[2].coerceIn(0, 255)
+
+                        _rgbColor.value = Color(r / 255f, g / 255f, b / 255f)
+                        addLog("🎨 OK: $r, $g, $b", LogType.SUCCESS)
+                    }
+                } catch (e: Exception) {
+                    addLog("RGB Error: ${e.message}", LogType.ERROR)
+                }
+            }
+
+            // ПРИЙОМ GPS ВІД КЛІЄНТА
+            cleanCmd.contains("CLIENT_GPS") -> {
+                try {
+                    val numbersOnly = cleanCmd.replace("CLIENT_GPS", "").replace(":", " ").replace(",", " ").trim()
+                    val parts = numbersOnly.split(Regex("\\s+")).mapNotNull { it.toDoubleOrNull() }
+
+                    if (parts.size >= 2) {
+                        val lat = parts[0]
+                        val lon = parts[1]
+                        _clientGpsData.value = GpsData(latitude = lat, longitude = lon)
+                        addLog("📍 Client at: $lat, $lon", LogType.SUCCESS)
+                    }
+                } catch (e: Exception) {
+                    addLog("Client GPS Parse Error", LogType.ERROR)
+                }
+            }
+
+            // ВІДПРАВКА ДАНИХ (GET_SENSORS або GET_GPS)
+            cleanCmd.contains("GET_GPS") -> sendGpsData() // Спеціальна команда для координат
+            cleanCmd.contains("GET") || cleanCmd.contains("SENSOR") -> sendSensorData()
+
+            else -> {
+                addLog("❓ UNKNOWN: '$cleanCmd'", LogType.INFO)
             }
         }
     }
-    // -------------------------------
+
+    // --- ФУНКЦІЇ КЕРУВАННЯ ---
 
     fun toggleBle() {
         if (_isBleRunning.value) {
@@ -103,16 +179,63 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                 _isWifiRunning.value = true
                 _wifiIpAddress.value = ip
             } else {
-                addLog("Error: No Wi-Fi Connection", LogType.ERROR)
+                addLog("Error: No Wi-Fi", LogType.ERROR)
             }
         }
+    }
+
+    fun updateTemperature(newTemp: Float) {
+        _temperature.value = newTemp
+    }
+
+    // --- ВІДПРАВКА ДАНИХ КЛІЄНТУ ---
+
+    // Звичайна телеметрія
+    private fun sendSensorData() {
+        val acc = _accelData.value
+        val gyro = _gyroData.value
+        val temp = _temperature.value
+        val lux = _lightLevel.value.toInt()
+
+        val response = """
+            {
+              "temp": %.1f,
+              "light": %d,
+              "acc": [%.2f, %.2f, %.2f],
+              "gyro": [%.2f, %.2f, %.2f]
+            }
+        """.trimIndent().format(Locale.US, temp, lux, acc.x, acc.y, acc.z, gyro.x, gyro.y, gyro.z)
+
+        sendResponseToClients(response)
+        addLog("TX --> SENSORS JSON", LogType.TX)
+    }
+
+    // Відправка тільки координат
+    private fun sendGpsData() {
+        val gps = _gpsData.value
+        val response = """
+            {
+              "lat": %.6f,
+              "lon": %.6f,
+              "alt": %.1f,
+              "speed": %.1f
+            }
+        """.trimIndent().format(Locale.US, gps.latitude, gps.longitude, gps.altitude, gps.speed)
+
+        sendResponseToClients(response)
+        addLog("TX --> GPS JSON", LogType.TX)
+    }
+
+    // Універсальна функція для відправки по всіх каналах
+    private fun sendResponseToClients(response: String) {
+        if (_isWifiRunning.value) wifiManager.sendResponse(response)
+        if (_isBleRunning.value) bleManager.sendData(response)
     }
 
     fun clearLogs() {
         _logs.value = emptyList()
     }
 
-    // Публічна функція для тестування з кнопок UI
     fun manualCommand(cmd: String) {
         processCommand(cmd)
     }

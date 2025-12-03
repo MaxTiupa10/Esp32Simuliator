@@ -15,3 +15,15 @@ data class LogMessage(
     val message: String,
     val type: LogType
 )
+
+// --- ДОДАЙТЕ ЦЕЙ КЛАС ТУДИ Ж ---
+// Дані для Акселерометра та Гіроскопа
+data class Sensor3DData(val x: Float, val y: Float, val z: Float)
+
+
+data class GpsData(
+    val latitude: Double = 0.0,   // Широта
+    val longitude: Double = 0.0,  // Довгота
+    val altitude: Double = 0.0,   // Висота
+    val speed: Float = 0.0f       // Швидкість
+)
