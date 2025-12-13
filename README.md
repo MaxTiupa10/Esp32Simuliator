@@ -71,20 +71,18 @@
 Тестуємо команди `LED_ON` та `LED_OFF`. Перейдіть на вкладку **"Симуляція"**.
 
 **Сценарій А: Ввімкнення**
-Відправте команду `LED_ON`. Індикатор у додатку має стати зеленим.
+Відправте команду `LED_ON`. Індикатор у додатку має стати зеленим, а спалах телефону — увімкнутись.
 
-| nRF Connect (Send) | App Result (ON) |
-| :---: | :---: |
-| <img src="https://github.com/user-attachments/assets/013b548d-c00f-47a7-a90a-ba17d2cf652e" width="250" /> <br> *Відправка "LED_ON"* | <img src="https://github.com/user-attachments/assets/07af2916-3449-4afb-bbe9-a9e50d2bb0b8" width="250" /> <br> *Індикатор засвітився* |
+| nRF Connect (Send) | App Result (UI) | Flashlight (Real) |
+| :---: | :---: | :---: |
+| <img src="https://github.com/user-attachments/assets/013b548d-c00f-47a7-a90a-ba17d2cf652e" width="200" /> <br> *Відправка "LED_ON"* | <img src="https://github.com/user-attachments/assets/07af2916-3449-4afb-bbe9-a9e50d2bb0b8" width="200" /> <br> *Індикатор засвітився* | <img src="https://github.com/user-attachments/assets/ea297dbd-5545-490b-ac6b-da60b406da59" width="200" /> <br> *Ліхтарик увімкнено* |
 
 **Сценарій Б: Вимкнення**
-Відправте команду `LED_OFF`. Індикатор має стати сірим.
+Відправте команду `LED_OFF`. Індикатор має стати сірим, а спалах — згаснути.
 
-| nRF Connect (Send) | App Result (OFF) |
-| :---: | :---: |
-| <img src="https://github.com/user-attachments/assets/73e8b851-8831-4c11-b9b7-fc1d737f6224" width="250" /> <br> *Відправка "LED_OFF"* | <img src="https://github.com/user-attachments/assets/a13f0fc5-5f1b-44b7-b9e6-923c772cee10" width="250" /> <br> *Індикатор згас* |
-
-
+| nRF Connect (Send) | App Result (UI) | Flashlight (Real) |
+| :---: | :---: | :---: |
+| <img src="https://github.com/user-attachments/assets/73e8b851-8831-4c11-b9b7-fc1d737f6224" width="200" /> <br> *Відправка "LED_OFF"* | <img src="https://github.com/user-attachments/assets/a13f0fc5-5f1b-44b7-b9e6-923c772cee10" width="200" /> <br> *Індикатор згас* | <img src="https://github.com/user-attachments/assets/c7af9628-4731-4c52-b294-dc3566d1eecb" width="200" /> <br> *Ліхтарик вимкнено* |
 ---
 
 ### Крок 3. Перевірка RGB (WS2812)
@@ -108,4 +106,11 @@
 | <img src="https://github.com/user-attachments/assets/dd284053-d9ab-45bb-a59d-b88294bba50d" width="250" /> <br> *Виставлена температура* | <img src="https://github.com/user-attachments/assets/bb41c65c-f586-433d-a0cf-af0b37833074" width="250" /> <br> *Отримано JSON* |
 
 
+### Крок 5. Перевірка GPS
+Тестуємо встановлення координат клієнта на карті.
+Відправте команду: `CLIENT_GPS: 49.844, 24.026`
+
+| nRF Connect (Send) | App Result (Map) |
+| :---: | :---: |
+| <img src="https://github.com/user-attachments/assets/9dd16277-5eb6-4127-838e-dc63efdbf914" width="250" /> <br> *Відправка координат* | <img src="https://github.com/user-attachments/assets/aa16e3b5-3b4e-4f77-b2e4-15927b52951e" width="250" /> <br> *Точка з'явилась на мапі* |
 
